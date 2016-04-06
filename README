@@ -1,0 +1,237 @@
+NAME
+    check_ssl_cert_expire - Alert if an SSL certificate is close to
+    expiration
+
+SYNOPSIS
+    check_ssl_cert_expire -f file_identifier -w warn_days -c critical_days
+
+DESCRIPTION
+    This Nagios plugin performs checks on locally-installed SSL
+    certificates, and returns status based on how close they are to
+    expiration. It works with any type of SSL certificate that OpenSSL can
+    process, including client certificates.
+
+    The human-readable output includes the time until expiration, the
+    certificate CN (common name), and the issuer CN. Perfdata output
+    includes the local path to the certificate file; the expiation date and
+    time until expiration; and the full certificate issuer and subject.
+
+    For security reasons, the list of certificates that can be checked is
+    specified in a local configuration file. See the "CERTIFICATE FILE"
+    section for details.
+
+    The configuration file is located at
+    /etc/nagios3/check_ssl_cert_list.conf.
+
+    Because the plugin runs locally, it must be executed by something else,
+    such as NRPE or remctl. You could also write a harness that triggers
+    checks automatically, and sends the results back using a mechanism like
+    NSCA.
+
+    This plugin must be able to access both its configuration file, as well
+    as the certificates themselves. Certificates do not normally contain
+    private data, but the directories where the certificates live may be
+    inaccessible to the account that is running the check. If the check is
+    unable to read a file, a WARNING status is returned.
+
+    The output of this check follows the Nagios plugin API for Nagios Core
+    version 3. See the "PLUGIN OUTPUT" section for more details, along with
+    the list of performance data items returned.
+
+OPTIONS
+    Each execution of `check_ssl_cert_expire' must have at least the `-f'
+    option set. The other two options are optional.
+
+    -f file_identifier
+        This is the unique identifier of the certificate to check. See the
+        "CERTIFICATE FILE" section for more details.
+
+    -w warn_days
+        Once the remaining life of the certificate has reached (or gone
+        below) this number of days, the check returns a WARNING status.
+
+        This must be a positive number. If not specified, this defaults to
+        30 days.
+
+    -c critical_days
+        Once the remaining life of the certificate has reached (or gone
+        below) this number of days, the check returns a CRITICAL status.
+
+        This must be a non-negative number. It may be zero, but that is a
+        bad idea. This must also be less than `warn_days' (described above).
+        If not specified, this defaults to 15 days.
+
+DISCUSSION
+    All SSL certificates must have their expiration dates checked regularly.
+    There are many Nagios plugins already in the world that check SSL
+    certificate expiration. Not only that, this is definitely not the
+    easiest way to check for certificate expiration. The easiest way to
+    check for SSL certificate expiration is to use Nagios plugins like
+    check_ssl_certificate and check_ssl_cert. If you have a service that
+    uses an SSL certificate and is reachable by your monitoring server, then
+    you should use one of those plugins instead.
+
+    This Nagios plugin is meant for cases where checking a certificate
+    remotely is diffucult. Examples include...
+
+    Server certificates used by weird stuff.
+    Client certificates.
+
+    In the case of server certificates, there are various protocols in the
+    world that rely on SSL certificates, but do not have coverage by
+    existing tools. Examples include database protocols, SIP, etc.. Also for
+    some protocols, a certain amount of communication is required before the
+    SSL/TLS session is started (at which point the certificate is available
+    to check), so simple checks would not work.
+
+    In addition, the behavior of some Nagios checks may be viewed as
+    malicious. For example, if a check connects to a server, goes as far as
+    retrieving the server certificate, and then disconnects, the server may
+    see that as a probe by an unknown agent, trying to see if a particular
+    service is available.
+
+    In the case of client certificates, this is very difficult to check
+    remotely, unless you are able to hook into the server that the client is
+    already using.
+
+    This Nagios plugin exists to serve the certificates that can not be
+    checked easily remotely.
+
+CERTIFICATE FILE
+    This Nagios plugin involves reading various files on the system, and
+    passing full paths to the plugin (most likely remotely) is dangerous for
+    several reasons:
+
+    Escapes
+        The path will always include various special characters, which must
+        be properly escaped throughout the entire path from the monitoring
+        server to this system.
+
+    Information Leakage
+        If a full path were provided, this plugin could be leveraged to
+        provide information on which files exist on a system, plus which are
+        certificates. Also, OpenSSL is used to parse the files. If an
+        attacker were able to place a file on a system that is known to
+        crash OpenSSL, and if this plugin were to accept full paths
+        remotely, then this plugin could be used to trigger an OpenSSL
+        crash, which could then be exploited.
+
+    To prevent these issues, a configuration file must exist on the system
+    where this plugin is running. The file contains lines of the following
+    format:
+
+        # A comment
+
+        identifier /path/to/certificate
+
+    Empty lines, and lines starting with a `#' (a hash mark) are ignored.
+    All other lines must contain the following:
+
+    An identifier, consisting only of ASCII letters, numbers, and
+    underscores.
+    At least one character of whitespace (such as a space or a tab).
+    The full path to the corresponding certificate.
+
+    The file format is such that configuration-management systems should be
+    able to maintain it. For example, Puppet users can use file_line.
+
+    If any identifier appears more than once, then the check will return an
+    UNKNOWN result. If any part of the file can not be parsed, then the
+    check will return an UNKNOWN result.
+
+PLUGIN OUTPUT
+    This plugin outputs results meant for Nagios Core version 3. The format
+    looks like this:
+
+        STATUS: Human-readable message|perfdata1|perfdata2
+
+    `STATUS' is either `OK', `WARNING', `CRITICAL', or `UNKNOWN'. The
+    human-readable message takes this form:
+
+        Expires in 1y3m5d 10h5m10s, certificate for mywebsite.com issued by
+        Some CA
+
+    In this example, the certificate expires in approximately one year and
+    three months.
+
+    If the certificate has expired, everything before the comma is replaced
+    with the word `EXPIRED'.
+
+    After the expiration, the output lists the Common Name (CN) of the
+    certificate subject and the certificate issuer. Although the Common Name
+    is a standard attribute for certificates, it is not mandatory. If a
+    certificate is checked that is missing a CN for either the issuer or the
+    subject, that part of the output is left empty.
+
+    In the perfdata section, there are a number of items which will appear,
+    depending on how far the plugin was able to proceed.
+
+    file_name
+        This is the string that was provided with the `-f' option. It will
+        appear in the perfdata as long as you provided something for the
+        `-f' option.
+
+    file_path
+        This is the absolute path to the certificate file. It will appear in
+        the perfdata as long as the `file_name' was found in the
+        configuration file.
+
+    subject
+        This is all of the fields from the Subject section of the
+        certificate. Fields are separated with a `/' (a forward-slash), and
+        an `=' (an equals sign) is used to separate the key from the value.
+
+        The `CN' (common name) field is what is used in the human-readable
+        output.
+
+        It will appear in the perfdata as long as the file loaded was
+        actually a certificate.
+
+    issuer
+        This is all of the fields from the Issuer section of the
+        certificate. The format is the same as with the `subject' section.
+
+        It will appear in the perfdata as long as the file loaded was
+        actually a certificate.
+
+    expiration_isotime
+        This is the certificate expiration date, in RFC 3339 format. It will
+        appear in the perfdata if the file loaded was actually a
+        certificate, and if it has an expiration date (also known as a
+        `notAfter' date).
+
+    expiration_remaining
+        This is the amount of time remaining before expiration, in ISO 8601
+        duration format. The form is "PnYnMnDTnHnMnS" (so, similar to the
+        human-readable output, but with everything upper-case, and the
+        letters 'P' and 'T').
+
+        If the certificate has already expired, then the output is simply
+        "P0W", meaning there are zero weeks remaining before expiration.
+
+        It will appear in the perfdata under the same conditions as
+        `expiration_isotime'.
+
+PREREQUISITES
+    There are three Perl module distributions required by this software:
+
+    Net-SSLeay
+        This is the interface to OpenSSL, so you must use a Net::SSLeay that
+        was built with the version of OpenSSL that is installed on the local
+        system.
+
+        At least version 1.43 is required, because that introduced some of
+        the methods we use. There is also a requirement of OpenSSL at least
+        version 0.9.8, which should be available on any relatively-modern
+        system.
+
+    DateTime
+        This is used for all of the expiration-date math.
+
+    DateTime-Format-RFC3339
+        The DateTime::Format::RFC3339 module, which ships separately from
+        DateTime, is used to parse the dates provided by Net::SSLeay.
+
+AUTHOR
+    A. Karl Kornel, akkornel@stanford.edu
+
